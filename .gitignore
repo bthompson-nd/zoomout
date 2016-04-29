@@ -1,0 +1,9 @@
+.git
+.idea
+bin
+lib
+include
+.Python
+*.zip
+*.json
+*.sh
