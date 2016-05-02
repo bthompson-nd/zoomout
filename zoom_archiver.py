@@ -101,6 +101,9 @@ class ZoomArchiver:
 
                 # Delete local zip file
                 os.remove(zip_filename)
+        donefile = open('done.flag', 'wb')
+        donefile.write('Done')
+        donefile.close()
 
     def collect_zoom_meetings(self):
         """Retrieve user list from Zoom. Will iterate through all, looking for aging meeting recordings.
