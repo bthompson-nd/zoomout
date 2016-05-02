@@ -37,5 +37,9 @@ class ZoomArchiverTest(unittest.TestCase):
             self.assertTrue('role' in share_response and share_response['role'] == 'writer')
             self.assertTrue('type' in share_response and share_response['type'] == 'user')
 
+    def test_archived_meetings(self):
+        archived_meetings = self.zoomarchiver.collect_archived_meetings()
+        print(archived_meetings)
+
 if __name__ == '__main__':
     unittest.main()

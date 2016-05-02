@@ -9,7 +9,6 @@ import os
 import time
 import requests
 import zipfile
-import json
 
 
 def log(string):
@@ -34,13 +33,19 @@ class ZoomArchiver:
 
         # Collect meetings from Zoom and iterate through them...
         meetings = self.collect_zoom_meetings()
+        archived = self.collect_archived_meetings()
         for meeting in meetings:
             start_time = datetime.strptime(meeting['recording']['start_time'], '%Y-%m-%dT%H:%M:%SZ')
             host = meeting['host']['email']
             now = datetime.now()
             topic = meeting['recording']['topic'] if 'topic' in meeting['recording'] else 'no topic'
+            for char in ['/', '\\', ' ']:
+                topic = topic.replace(char, '_')
             meeting_number = meeting['recording']['meeting_number']
-            zip_filename = "{0}.{1}".format(meeting_number, 'zip')
+            zip_filename = "{0}-{1}.{2}".format(topic, meeting_number, 'zip')
+            if zip_filename in archived:
+                log("This meeting is already archived. Moving on...")
+                continue
             if (now - start_time).days > 30:
                 # If the recording is more than 30 days old, save it and upload it to Google.
                 # Create a ZIP file with the meeting number as a name
@@ -110,6 +115,15 @@ class ZoomArchiver:
                 meetings.append(dict(host=user, recording=recording))
         return meetings
 
+    def collect_archived_meetings(self):
+        """Retrieves file list from Google Drive. Returns a list of meeting IDs.
+
+        :return: Array of meeting ids in string form
+        """
+        files = self.drive.files().list().execute()['files']
+        return [f['name'] for f in files]
+
+
     def upload_to_drive(self, zip_filename):
         """Uploads the file to Google Drive
         :param zip_filename: A filepath to a zip like 'My Meeting - 133455.zip'.
@@ -164,7 +178,7 @@ class ZoomArchiver:
         :return: The Drive API's response
         """
         return self.drive.permissions().create(fileId=id,
-                                               body={'emailAddress': host,
+                                               body={'emailAddress': 'ben.thompson@gtest.nd.edu',
                                                      'role': 'writer',
                                                      'type': 'user'}).execute()
 
