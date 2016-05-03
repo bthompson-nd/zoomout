@@ -30,80 +30,83 @@ class ZoomArchiver:
             exit()
 
     def main(self):
+        try:
+            # Collect meetings from Zoom and iterate through them...
+            meetings = self.collect_zoom_meetings()
+            archived = self.collect_archived_meetings()
+            for meeting in meetings:
+                start_time = datetime.strptime(meeting['recording']['start_time'], '%Y-%m-%dT%H:%M:%SZ')
+                host = meeting['host']['email']
+                now = datetime.now()
+                topic = meeting['recording']['topic'] if 'topic' in meeting['recording'] else 'no topic'
+                for char in ['/', '\\', ' ']:
+                    topic = topic.replace(char, '_')
+                meeting_number = meeting['recording']['meeting_number']
+                zip_filename = "{0}-{1}.{2}".format(topic, meeting_number, 'zip')
+                if zip_filename in archived:
+                    log("This meeting is already archived. Moving on...")
+                    continue
+                if (now - start_time).days > 30:
+                    # If the recording is more than 30 days old, save it and upload it to Google.
+                    # Create a ZIP file with the meeting number as a name
+                    # Download and add each recording file to the archive
+                    # Save the archive
+                    # Upload the archive to Google Drive, as though owned by the meeting host
+                    with zipfile.ZipFile(zip_filename, 'w', allowZip64=True) as zf:
+                        for recording_file in meeting['recording']['recording_files']:
+                            filename = "{0}.{1}".format(recording_file['id'], recording_file['file_type'])
+                            f = open(filename, 'wb')
+                            try:
+                                # Downloads the recording file to disk, inserts it into zf, and deletes the standalone file
+                                remote_recording_file = requests.get(recording_file['download_url'])
+                                f.write(remote_recording_file.content)
+                                zf.write(filename)
+                            except requests.RequestException as e:
+                                log("Could not download the file {0} from Zoom Meeting {1}: {2}".
+                                    format(recording_file['download_url'], meeting['id'], e.message))
+                            f.close()
+                            os.remove(filename)
+                        if len(zf.namelist()) < len(meeting['recording']['recording_files']):
+                            # If we didn't get all the files, mention it and skip this one.
+                            log("Failed to get all files from meeting #{0}: {1}. Skipping this meeting...".
+                                format(meeting_number, topic)
+                                )
+                            os.remove(zip_filename)
+                            continue  # Causes the loop to skip uploading to Drive, sharing, deleting from Zoom
 
-        # Collect meetings from Zoom and iterate through them...
-        meetings = self.collect_zoom_meetings()
-        archived = self.collect_archived_meetings()
-        for meeting in meetings:
-            start_time = datetime.strptime(meeting['recording']['start_time'], '%Y-%m-%dT%H:%M:%SZ')
-            host = meeting['host']['email']
-            now = datetime.now()
-            topic = meeting['recording']['topic'] if 'topic' in meeting['recording'] else 'no topic'
-            for char in ['/', '\\', ' ']:
-                topic = topic.replace(char, '_')
-            meeting_number = meeting['recording']['meeting_number']
-            zip_filename = "{0}-{1}.{2}".format(topic, meeting_number, 'zip')
-            if zip_filename in archived:
-                log("This meeting is already archived. Moving on...")
-                continue
-            if (now - start_time).days > 30:
-                # If the recording is more than 30 days old, save it and upload it to Google.
-                # Create a ZIP file with the meeting number as a name
-                # Download and add each recording file to the archive
-                # Save the archive
-                # Upload the archive to Google Drive, as though owned by the meeting host
-                with zipfile.ZipFile(zip_filename, 'w', allowZip64=True) as zf:
-                    for recording_file in meeting['recording']['recording_files']:
-                        filename = "{0}.{1}".format(recording_file['id'], recording_file['file_type'])
-                        f = open(filename, 'wb')
-                        try:
-                            # Downloads the recording file to disk, inserts it into zf, and deletes the standalone file
-                            remote_recording_file = requests.get(recording_file['download_url'])
-                            f.write(remote_recording_file.content)
-                            zf.write(filename)
-                        except requests.RequestException as e:
-                            log("Could not download the file {0} from Zoom Meeting {1}: {2}".
-                                format(recording_file['download_url'], meeting['id'], e.message))
-                        f.close()
-                        os.remove(filename)
-                    if len(zf.namelist()) < len(meeting['recording']['recording_files']):
-                        # If we didn't get all the files, mention it and skip this one.
-                        log("Failed to get all files from meeting #{0}: {1}. Skipping this meeting...".
-                            format(meeting_number, topic)
+                    try:
+                        # Upload it to Drive
+                        upload_response = self.upload_to_drive(zip_filename)
+                    except Exception as e:
+                        log("Couldn't Upload {0} to Drive: {1}".format(zip_filename, e.message))
+                        os.remove(zip_filename)
+                        continue  # Causes the loop to skip sharing, deleting from Zoom
+
+                    try:
+                        # Share it with the host
+                        share_response = self.share_with_host(upload_response['id'], host)
+                    except Exception as e:
+                        log("Couldn't Share {0} with {1}. Deleting from Drive and from disk, and moving on. ({2})".
+                            format(upload_response['name'], host, e.message)
                             )
                         os.remove(zip_filename)
-                        continue  # Causes the loop to skip uploading to Drive, sharing, deleting from Zoom
+                        self.drive.files().delete(fileId=upload_response['id'])
+                        continue  # Causes the loop to skip deleting from Zoom
 
-                try:
-                    # Upload it to Drive
-                    upload_response = self.upload_to_drive(zip_filename)
-                except Exception as e:
-                    log("Couldn't Upload {0} to Drive: {1}".format(zip_filename, e.message))
+                    # try:
+                    #     # Delete Zoom recording
+                    #     self.zoom.delete_recording(meeting['id'])
+                    # except Exception as e:
+                    #     log("Couldn't Delete Meeting {0} from Zoom: {1}".format(meeting['id'], e.message))
+
+                    # Delete local zip file
                     os.remove(zip_filename)
-                    continue  # Causes the loop to skip sharing, deleting from Zoom
-
-                try:
-                    # Share it with the host
-                    share_response = self.share_with_host(upload_response['id'], host)
-                except Exception as e:
-                    log("Couldn't Share {0} with {1}. Deleting from Drive and from disk, and moving on. ({2})".
-                        format(upload_response['name'], host, e.message)
-                        )
-                    os.remove(zip_filename)
-                    self.drive.files().delete(fileId=upload_response['id'])
-                    continue  # Causes the loop to skip deleting from Zoom
-
-                # try:
-                #     # Delete Zoom recording
-                #     self.zoom.delete_recording(meeting['id'])
-                # except Exception as e:
-                #     log("Couldn't Delete Meeting {0} from Zoom: {1}".format(meeting['id'], e.message))
-
-                # Delete local zip file
-                os.remove(zip_filename)
-        donefile = open('done.flag', 'wb')
-        donefile.write('Done')
-        donefile.close()
+            donefile = open('done.flag', 'wb')
+            donefile.write('Done')
+            donefile.close()
+        except Exception as e:
+            log(e.message)
+            exit()
 
     def collect_zoom_meetings(self):
         """Retrieve user list from Zoom. Will iterate through all, looking for aging meeting recordings.
