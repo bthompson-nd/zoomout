@@ -30,6 +30,7 @@ class ZoomArchiver:
             exit()
 
     def main(self):
+        log("Starting...")
         try:
             # Collect meetings from Zoom and iterate through them...
             meetings = self.collect_zoom_meetings()
@@ -53,11 +54,13 @@ class ZoomArchiver:
                     # Save the archive
                     # Upload the archive to Google Drive, as though owned by the meeting host
                     with zipfile.ZipFile(zip_filename, 'w', allowZip64=True) as zf:
+                        log("Creating archive {0}".format(zip_filename))
                         for recording_file in meeting['recording']['recording_files']:
                             filename = "{0}.{1}".format(recording_file['id'], recording_file['file_type'])
                             f = open(filename, 'wb')
                             try:
                                 # Downloads the recording file to disk, inserts it into zf, and deletes the standalone file
+                                log("Downloading {0}...".format(filename))
                                 remote_recording_file = requests.get(recording_file['download_url'])
                                 f.write(remote_recording_file.content)
                                 zf.write(filename)
