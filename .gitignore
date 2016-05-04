@@ -7,3 +7,5 @@ include
 *.zip
 *.json
 *.sh
+ansible
+*.pyc
