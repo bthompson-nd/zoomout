@@ -8,7 +8,8 @@ from httplib2 import Http
 import os
 import time
 import requests
-import zipfile
+import sys
+import traceback
 
 
 def log(string):
@@ -16,7 +17,7 @@ def log(string):
 
 
 class ZoomArchiver:
-    def __init__(self):
+    def __init__(self, limit):
         # Establish Google Drive API
         self.drive = self.authorize_with_drive()
         # Establish Zoom API
@@ -29,6 +30,8 @@ class ZoomArchiver:
             log("Aborting: You need to set the ZOOM_API_KEY and ZOOM_API_SECRET environment variables first.")
             exit()
 
+        self.limit = limit
+
     def main(self):
         try:
             # Collect meetings from Zoom and iterate through them...
@@ -36,76 +39,85 @@ class ZoomArchiver:
             archived = self.collect_archived_meetings()
             for meeting in meetings:
                 start_time = datetime.strptime(meeting['recording']['start_time'], '%Y-%m-%dT%H:%M:%SZ')
-                host = meeting['host']['email']
+                host = 'ben.thompson@gtest.nd.edu' ## meeting['host']['email']
+                host_username = host.split('@')[0]
                 now = datetime.now()
                 topic = meeting['recording']['topic'] if 'topic' in meeting['recording'] else 'no topic'
-                for char in ['/', '\\', ' ']:
-                    topic = topic.replace(char, '_')
-                meeting_number = meeting['recording']['meeting_number']
-                zip_filename = "{0}-{1}.{2}".format(topic, meeting_number, 'zip')
-                if zip_filename in archived:
-                    log("This meeting is already archived. Moving on...")
-                    continue
-                if (now - start_time).days > 30:
-                    # If the recording is more than 30 days old, save it and upload it to Google.
-                    # Create a ZIP file with the meeting number as a name
-                    # Download and add each recording file to the archive
-                    # Save the archive
-                    # Upload the archive to Google Drive, as though owned by the meeting host
-                    with zipfile.ZipFile(zip_filename, 'w', allowZip64=True) as zf:
-                        for recording_file in meeting['recording']['recording_files']:
-                            filename = "{0}.{1}".format(recording_file['id'], recording_file['file_type'])
-                            f = open(filename, 'wb')
-                            try:
-                                # Downloads the recording file to disk, inserts it into zf, and deletes the standalone file
-                                remote_recording_file = requests.get(recording_file['download_url'])
-                                f.write(remote_recording_file.content)
-                                zf.write(filename)
-                            except requests.RequestException as e:
-                                log("Could not download the file {0} from Zoom Meeting {1}: {2}".
-                                    format(recording_file['download_url'], meeting['id'], e.message))
-                            f.close()
-                            os.remove(filename)
-                        if len(zf.namelist()) < len(meeting['recording']['recording_files']):
-                            # If we didn't get all the files, mention it and skip this one.
-                            log("Failed to get all files from meeting #{0}: {1}. Skipping this meeting...".
-                                format(meeting_number, topic)
+                for character in ["\"", "'", "\\", "/"]:
+                    topic = topic.replace(character, "")
+
+                # If the recording is more than 30 days old, save it and upload it to Google.
+                if (now - start_time).days > self.limit:
+                    # Find or create user's top level folder
+                    top_folder = self.find_or_create_top_folder(
+                            host=host,
+                            host_username=host_username)
+
+                    # Find or create meeting's folder
+                    meeting_folder_name = "{0} - {1}".format(topic, start_time)
+                    meeting_folder = self.find_or_create_meeting_folder(
+                            folder_name=meeting_folder_name,
+                            top_folder=top_folder,
+                            host=host)
+
+                    # Iterate through recording files and save them
+                    for recording_file in meeting['recording']['recording_files']:
+                        filename = "{0}.{1}".format(recording_file['id'], recording_file['file_type'])
+                        if filename in archived:
+                            log("Skipping {0} recorded by {1}. File by this name already exists in Drive.".
+                                format(filename, host))
+                            continue  # Causes the loop to skip downloading this file (and all subsequent steps)
+                        f = open(filename, 'wb')
+                        try:
+                            # Downloads the recording file to disk
+                            remote_recording_file = requests.get(recording_file['download_url'])
+                            f.write(remote_recording_file.content)
+                        except requests.RequestException as e:
+                            log("Could not download the file {0} from Zoom Meeting {1}: {2}".
+                                format(recording_file['download_url'], meeting['id'], e.message))
+                            if os.path.isfile(filename):
+                                os.remove(filename)
+                            continue  # Causes the loop to skip uploading to Drive, sharing, and deleting from Zoom
+
+                        f.close()
+
+                        try:
+                            # Upload it to Drive
+                            upload_response = self.upload_to_drive(meeting_folder['id'], filename)
+                        except Exception as e:
+                            log("Couldn't Upload {0} to Drive: {1}".format(filename, e.message))
+                            if os.path.isfile(filename):
+                                os.remove(filename)
+                            continue  # Causes the loop to skip sharing, deleting from Zoom
+
+                        try:
+                            # Share it with the host
+                            self.share_document(upload_response['id'], host)
+                        except Exception as e:
+                            log("Couldn't Share {0} with {1}. Deleting from Drive and from disk, and moving on. ({2})".
+                                format(upload_response, host, e.message)
                                 )
-                            os.remove(zip_filename)
-                            continue  # Causes the loop to skip uploading to Drive, sharing, deleting from Zoom
+                            if os.path.isfile(filename):
+                                os.remove(filename)
+                            self.drive.files().delete(fileId=upload_response['id'])
+                            continue  # Causes the loop to skip deleting from Zoom
 
-                    try:
-                        # Upload it to Drive
-                        upload_response = self.upload_to_drive(zip_filename)
-                    except Exception as e:
-                        log("Couldn't Upload {0} to Drive: {1}".format(zip_filename, e.message))
-                        os.remove(zip_filename)
-                        continue  # Causes the loop to skip sharing, deleting from Zoom
+                        # try:
+                        #     # Delete Zoom recording
+                        #     self.zoom.delete_recording(meeting['id'])
+                        # except Exception as e:
+                        #     log("Couldn't Delete Meeting {0} from Zoom: {1}".format(meeting['id'], e.message))
 
-                    try:
-                        # Share it with the host
-                        share_response = self.share_with_host(upload_response['id'], host)
-                    except Exception as e:
-                        log("Couldn't Share {0} with {1}. Deleting from Drive and from disk, and moving on. ({2})".
-                            format(upload_response['name'], host, e.message)
-                            )
-                        os.remove(zip_filename)
-                        self.drive.files().delete(fileId=upload_response['id'])
-                        continue  # Causes the loop to skip deleting from Zoom
-
-                    # try:
-                    #     # Delete Zoom recording
-                    #     self.zoom.delete_recording(meeting['id'])
-                    # except Exception as e:
-                    #     log("Couldn't Delete Meeting {0} from Zoom: {1}".format(meeting['id'], e.message))
-
-                    # Delete local zip file
-                    os.remove(zip_filename)
-            donefile = open('done.flag', 'wb')
-            donefile.write('Done')
-            donefile.close()
+                        # Delete local file
+                        if os.path.isfile(filename):
+                            os.remove(filename)
+            done_file = open('done.flag', 'wb')
+            done_file.write('Done')
+            done_file.close()
         except Exception as e:
-            log(e.message)
+            ex_type, ex, tb = sys.exc_info()
+            trace = traceback.format_tb(tb)
+            log("Something terrible has happened. Stopping here. {0} | {1}".format(e.message, trace))
             exit()
 
     def collect_zoom_meetings(self):
@@ -129,25 +141,26 @@ class ZoomArchiver:
         files = self.drive.files().list().execute()['files']
         return [f['name'] for f in files]
 
-
-    def upload_to_drive(self, zip_filename):
+    def upload_to_drive(self, parent_id, filename):
         """Uploads the file to Google Drive
-        :param zip_filename: A filepath to a zip like 'My Meeting - 133455.zip'.
+        :param filename: A filepath to a file like '123abc.MP4'.
+        :param parent_id: Google Drive document id of the parent folder
         :return: The Google Drive API's response to the Upload request
         """
         try:
             media_body = MediaFileUpload(
-                    zip_filename,
+                    filename,
                     mimetype='application/octet-stream',
                     chunksize=1024 * 256,
                     resumable=True)
             body = {
-                'name': zip_filename,
+                'name': filename,
                 'description': "Zoom Recording",
+                'parents': [parent_id],
                 'mimeType': 'application/octet-stream'
             }
         except IOError as e:
-            log("Couldn't generate upload for {0}. {1}".format(zip_filename, e.message))
+            log("Couldn't generate upload for {0}. {1}".format(filename, e.strerror))
             return ''
 
         retries = 0
@@ -177,25 +190,61 @@ class ZoomArchiver:
                         continue
         return response
 
-    def share_with_host(self, id, host):
+    def find_or_create_top_folder(self, host, host_username):
+        """Finds or creates the top level folder all of a user's recorded meetings will go in
+        :param host:
+        :param host_username:
+        :return: top_folder
+        """
+        user_recordings_folder_list = self.drive.files().list(q="mimeType = 'application/vnd.google-apps.folder' and name = '{0} Zoom Recorded Meetings'".format(host_username)).execute()['files']
+        if len(user_recordings_folder_list) > 0:
+            top_folder = user_recordings_folder_list[0]
+        else:
+            top_folder = self.drive.files().create(body=dict(name="{0} Zoom Recorded Meetings".format(
+                                                                host_username),
+                                                             mimeType="application/vnd.google-apps.folder"),
+                                                   fields='id').execute()
+            self.share_document(top_folder['id'], host)
+        return top_folder
+
+    def find_or_create_meeting_folder(self, folder_name, top_folder, host):
+        """Finds or creates the folder for a given meeting
+        :param folder_name:
+        :param top_folder:
+        :param host:
+        :return: meeting_folder
+        """
+        meeting_folder_list = self.drive.files().list(q="mimeType = 'application/vnd.google-apps.folder' and name = '{0}'".format(folder_name)).execute()['files']
+        if len(meeting_folder_list) < 1:
+            meeting_folder = self.drive.files().create(body=dict(name=folder_name,
+                                                                 parents=[top_folder['id']],
+                                                                 mimeType="application/vnd.google-apps.folder"),
+                                                       fields='id').execute()
+            self.share_document(meeting_folder['id'], host)
+        else:
+            meeting_folder = meeting_folder_list[0]
+        return meeting_folder
+
+    def share_document(self, document_id, user):
         """Appends a permission to the file
-        :param id: Google Drive fileId
-        :param host: Host of the Zoom meeting, an email address
+        :param document_id: Google Drive fileId
+        :param user: Host of the Zoom meeting, an email address
         :return: The Drive API's response
         """
-        return self.drive.permissions().create(fileId=id,
-                                               body={'emailAddress': 'ben.thompson@gtest.nd.edu',
+        return self.drive.permissions().create(fileId=document_id,
+                                               body={'emailAddress': user,
                                                      'role': 'writer',
                                                      'type': 'user'}).execute()
 
-    def remove_from_drive(self, id):
+    def remove_from_drive(self, document_id):
         """Removes the file from Google Drive
-        :param id: Google Drive fileId
+        :param document_id: Google Drive fileId
         :return: Nothing
         """
-        self.drive.files().delete(fileId=id).execute()
+        self.drive.files().delete(fileId=document_id).execute()
 
-    def authorize_with_drive(self):
+    @staticmethod
+    def authorize_with_drive():
         """Runs the authorization routine for a Google service account. Uses a JSON keyfile client_secrets.json
         :return: Resource object for interacting with Drive API v3
         """
@@ -208,5 +257,14 @@ class ZoomArchiver:
 
 
 if __name__ == "__main__":
-    za = ZoomArchiver()
+    try:
+        lim = int(sys.argv[1])
+    except ValueError as e:
+        log("Correct Usage: zoom_archiver.py N   where N is an integer representing the number of days to wait before archiving a Zoom recording. Using the default 30 days...")
+        lim = 30
+    except IndexError as e:
+        log("No argument provided. Archiving Zoom meetings older than 30 days...")
+        lim = 30
+
+    za = ZoomArchiver(limit=lim)
     za.main()
