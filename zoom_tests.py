@@ -33,7 +33,7 @@ class ZoomArchiverTest(unittest.TestCase):
             if 'id' in response:
                 self.ids.append(response['id'])
 
-            share_response = self.zoomarchiver.share_with_host(response['id'], 'ben.thompson@gtest.nd.edu')
+            share_response = self.zoomarchiver.share_document(response['id'], 'ben.thompson@gtest.nd.edu')
             self.assertTrue('role' in share_response and share_response['role'] == 'writer')
             self.assertTrue('type' in share_response and share_response['type'] == 'user')
 
