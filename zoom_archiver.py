@@ -102,7 +102,7 @@ class ZoomArchiver:
                             self.share_document(upload_response['id'], host)
                         except Exception as e:
                             log("Couldn't Share {0} with {1}. Deleting from Drive and from disk, and moving on. ({2})".
-                                format(upload_response, host, e.message)
+                                format(upload_response['name'], host, e.message)
                                 )
                             if os.path.isfile(filename):
                                 os.remove(filename)
@@ -124,7 +124,7 @@ class ZoomArchiver:
         except Exception as e:
             ex_type, ex, tb = sys.exc_info()
             trace = traceback.format_tb(tb)
-            log("Something terrible has happened. Stopping here. {0} | {1}".format(e.message, trace))
+            log("Something terrible has happened. Stopping here. {0} | {1} | {2}".format(e.message, trace, ex.content))
             exit()
 
     def collect_zoom_meetings(self):
