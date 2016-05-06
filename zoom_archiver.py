@@ -5,9 +5,9 @@ from apiclient import errors
 from zoom_api import ZoomApi
 from datetime import datetime
 from httplib2 import Http
+import urllib2
 import os
 import time
-import requests
 import sys
 import traceback
 
@@ -68,19 +68,25 @@ class ZoomArchiver:
                             log("Skipping {0} recorded by {1}. File by this name already exists in Drive.".
                                 format(filename, host))
                             continue  # Causes the loop to skip downloading this file (and all subsequent steps)
-                        f = open(filename, 'wb')
+
                         try:
                             # Downloads the recording file to disk
-                            remote_recording_file = requests.get(recording_file['download_url'])
-                            f.write(remote_recording_file.content)
-                        except requests.RequestException as e:
-                            log("Could not download the file {0} from Zoom Meeting {1}: {2}".
-                                format(recording_file['download_url'], meeting['id'], e.message))
+                            remote_file = urllib2.urlopen(recording_file['download_url'])
+                            with open(filename, 'wb') as f:
+                                while True:
+                                    tmp = remote_file.read(1024)
+                                    if not tmp:
+                                        break
+                                    f.write(tmp)
+                        except Exception as exc:
+                            log("Could not download the file {0} from Zoom Meeting {1} (URL {2}): {3}".
+                                format(filename,
+                                       meeting['id'],
+                                       recording_file['download_url'],
+                                       exc.message))
                             if os.path.isfile(filename):
                                 os.remove(filename)
                             continue  # Causes the loop to skip uploading to Drive, sharing, and deleting from Zoom
-
-                        f.close()
 
                         try:
                             # Upload it to Drive
