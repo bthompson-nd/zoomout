@@ -97,17 +97,19 @@ class ZoomArchiver:
                                 os.remove(filename)
                             continue  # Causes the loop to skip sharing, deleting from Zoom
 
-                        try:
-                            # Share it with the host
-                            self.share_document(upload_response['id'], host)
-                        except Exception as e:
-                            log("Couldn't Share {0} with {1}. Deleting from Drive and from disk, and moving on. ({2})".
-                                format(upload_response['name'], host, e.message)
-                                )
-                            if os.path.isfile(filename):
-                                os.remove(filename)
-                            self.drive.files().delete(fileId=upload_response['id'])
-                            continue  # Causes the loop to skip deleting from Zoom
+                        # Commenting out because the parent folder is shared with the host, so this part isn't necessary
+                        # try:
+                        #     # Share it with the host
+                        #     self.share_document(upload_response['id'], host)
+                        # except Exception as e:
+                        #     log("Couldn't Share {0} with {1}. Deleting from Drive and from disk, and moving on. ({2})".
+                        #         format(upload_response['name'], host, e.message)
+                        #         )
+                        #     if os.path.isfile(filename):
+                        #         os.remove(filename)
+                        #     self.drive.files().delete(fileId=upload_response['id'])
+                        #     continue  # Causes the loop to skip deleting from Zoom
+                        # end document sharing section
 
                         # try:
                         #     # Delete Zoom recording
