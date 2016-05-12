@@ -78,6 +78,10 @@ class ZoomOut:
                         if self.drive_file_exists(recording_file_id):
                             log("Skipping {0} recorded by {1}. Zoom file with this zoomFileId ({2}) in the appProperties already exists in Drive.".
                                 format(filename, host, recording_file_id))
+                            self.zoom.delete_recording(meeting_id=meeting['recording']['meeting_number'],
+                                                       file_id=recording_file_id)
+                            if os.path.isfile(filename):
+                                os.remove(filename)
                             continue  # Causes the loop to skip downloading this file (and all subsequent steps)
 
                         try:
