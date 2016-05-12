@@ -9,3 +9,5 @@ include
 *.sh
 ansible
 *.pyc
+*.MP4
+*.M4A
