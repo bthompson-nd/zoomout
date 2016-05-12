@@ -111,7 +111,8 @@ class ZoomOut:
 
                         try:
                             # Delete Zoom recording
-                            self.zoom.delete_recording(meeting['id'])
+                            self.zoom.delete_recording(meeting_id=meeting['recording']['meeting_number'],
+                                                       file_id=recording_file_id)
                         except Exception as e:
                             log("Couldn't Delete Meeting {0} from Zoom: {1}".format(meeting['id'], e.message))
 
