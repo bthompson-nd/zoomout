@@ -6,6 +6,7 @@ from zoom_api import ZoomApi
 from datetime import datetime
 from httplib2 import Http
 import urllib2
+import json
 import os
 import time
 import sys
@@ -39,6 +40,10 @@ class ZoomOut:
 
         # Translate the limit given in hours to a limit in seconds
         self.limit = limit*60*60 if isinstance(limit, (int, long)) else 1*60*60
+
+        # Try to load messaging from messaging.json. Go with defaults if none present.
+        self.messaging = dict(share="Your recorded Zoom meeting is now available in your Google Drive.")
+        self.load_messaging()  # Assigns self.messaging based on the messaging.json file or fails and keeps the default.
 
     def main(self):
         log("Starting...")
@@ -78,9 +83,10 @@ class ZoomOut:
                         if self.drive_file_exists(recording_file_id):
                             log("Skipping {0} recorded by {1}. Zoom file with this zoomFileId ({2}) in the appProperties already exists in Drive.".
                                 format(filename, host, recording_file_id))
-                            self.zoom.delete_recording(meeting_uuid=meeting['recording']['uuid'],
+                            delete_response = self.zoom.delete_recording(meeting_uuid=meeting['recording']['uuid'],
                                                        file_id=recording_file_id)
-                            log(delete_response.content)
+                            if delete_response.status_code != 200:
+                                log(delete_response.content)
                             if os.path.isfile(filename):
                                 os.remove(filename)
                             continue  # Causes the loop to skip downloading this file (and all subsequent steps)
@@ -127,7 +133,7 @@ class ZoomOut:
 
                     # Now share the folder containing the files we just uploaded
                     if successful_uploads == len(meeting['recording']['recording_files']):
-                        message = "The recording of your recent Zoom meeting ({0}) is now available in your \"Shared with Me\" view in Google Drive.".format(topic)
+                        message = self.messaging['share']
                         self.share_document(meeting_folder['id'], host, message)
                     else:
                         log("Could not upload every recording file for meeting {0}".format(meeting_folder_name))
@@ -140,6 +146,18 @@ class ZoomOut:
             trace = traceback.format_tb(tb)
             log("Something terrible has happened. Stopping here. {0} | {1}".format(e.message, trace))
             exit()
+
+    def load_messaging(self):
+        try:
+            if os.path.exists('messaging.json'):
+                messaging_file = open('messaging.json', 'rb')
+                self.messaging = json.loads(messaging_file.read())
+            else:
+                log("No messaging.json file provided. Resorting to default messaging. "+
+                    "Please include a JSON file called messaging.json containing a \"share\" field "+
+                    "if you want to customize the message sent to the user when the files are shared on Drive.")
+        except Exception as exc:
+            log("File 'messaging.json' exists but something went wrong. Reverting to defaults.")
 
     def collect_archived_meetings(self):
         """Retrieves file list from Google Drive. Returns a list of file names.
