@@ -68,11 +68,12 @@ class ZoomApi:
                 meetings.append(dict(host=user, recording=recording))
         return meetings
 
-    def delete_recording(self, file_id):
+    def delete_recording(self, meeting_id, file_id):
         response = requests.post('https://api.zoom.us/v1/recording/delete',
                                  data=dict(
                                      api_key=self.api_key,
                                      api_secret=self.api_secret,
+                                     meeting_id=meeting_id,
                                      file_id=file_id
                                  ))
         return response

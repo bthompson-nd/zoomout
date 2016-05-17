@@ -84,7 +84,9 @@ class ZoomOut:
                         if self.drive_file_exists(recording_file_id):
                             log("Skipping {0} recorded by {1}. Zoom file with this zoomFileId ({2}) in the appProperties already exists in Drive.".
                                 format(filename, host, recording_file_id))
-                            delete_response = self.zoom.delete_recording(recording_file_id)
+                            delete_response = self.zoom.delete_recording(
+                                    meeting_id=recording_file['meeting_id'],
+                                    file_id=recording_file_id)
                             if delete_response.status_code != 200:
                                 log(delete_response.content)
                             if os.path.isfile(filename):
@@ -122,7 +124,9 @@ class ZoomOut:
 
                         try:
                             # Delete Zoom recording
-                            self.zoom.delete_recording(recording_file_id)
+                            self.zoom.delete_recording(
+                                    meeting_id=recording_file['meeting_id'],
+                                    file_id=recording_file_id)
                         except Exception as e:
                             log("Couldn't Delete Meeting {0} from Zoom: {1}".format(meeting['id'], e.message))
 
