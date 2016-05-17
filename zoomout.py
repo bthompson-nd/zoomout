@@ -6,6 +6,7 @@ from zoom_api import ZoomApi
 from datetime import datetime
 from httplib2 import Http
 import urllib2
+from urllib import urlencode
 import json
 import os
 import time
@@ -56,9 +57,9 @@ class ZoomOut:
                 host = meeting['host']['email']
                 host_username = host.split('@')[0]
                 now = datetime.now()
-                topic = meeting['recording']['topic'] if 'topic' in meeting['recording'] else 'no topic'
-                for character in ["\"", "'", "\\", "/"]:
-                    topic = topic.replace(character, "")
+                topic = meeting['recording']['topic'] if 'topic' in meeting['recording'] else '[no topic]'
+                #for character in ["\"", "'", "\\", "/"]:
+                #    topic = topic.replace(character, "\\"+character)
 
                 # If the recording is more than x hours old, save it and upload it to Google.
                 if (now - start_time).seconds > self.limit:
@@ -83,8 +84,7 @@ class ZoomOut:
                         if self.drive_file_exists(recording_file_id):
                             log("Skipping {0} recorded by {1}. Zoom file with this zoomFileId ({2}) in the appProperties already exists in Drive.".
                                 format(filename, host, recording_file_id))
-                            delete_response = self.zoom.delete_recording(meeting_uuid=meeting['recording']['uuid'],
-                                                       file_id=recording_file_id)
+                            delete_response = self.zoom.delete_recording(recording_file_id)
                             if delete_response.status_code != 200:
                                 log(delete_response.content)
                             if os.path.isfile(filename):
@@ -122,8 +122,7 @@ class ZoomOut:
 
                         try:
                             # Delete Zoom recording
-                            self.zoom.delete_recording(meeting_uuid=meeting['recording']['uuid'],
-                                                       file_id=recording_file_id)
+                            self.zoom.delete_recording(recording_file_id)
                         except Exception as e:
                             log("Couldn't Delete Meeting {0} from Zoom: {1}".format(meeting['id'], e.message))
 
@@ -245,8 +244,8 @@ class ZoomOut:
         if len(meeting_folder_list) < 1:
             meeting_folder = self.drive.files().create(body=dict(name=folder_name,
                                                                  parents=[top_folder['id']],
-                                                                 zoomMeetingId=zoom_meeting_id,
-                                                                 mimeType="application/vnd.google-apps.folder"),
+                                                                 mimeType="application/vnd.google-apps.folder",
+                                                                 appProperties={'zoomMeetingId': zoom_meeting_id}),
                                                        fields='id').execute()
         else:
             meeting_folder = meeting_folder_list[0]
