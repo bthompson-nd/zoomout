@@ -6,7 +6,6 @@ from zoom_api import ZoomApi
 from datetime import datetime
 from httplib2 import Http
 import urllib2
-from urllib import urlencode
 import json
 import os
 import time
@@ -15,11 +14,18 @@ import traceback
 
 
 def log(string):
+    """
+    Prints a string to stdout, prepended with a date in the format %Y-%m-%d %H:%M:%S
+    """
     print("{0} - {1}".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), string))
 
 
 class ZoomOut:
     def __init__(self, limit):
+        """
+        Initializer for the ZoomOut class, takes an integer parameter 'limit' that sets the maximum age for Zoom
+        recordings before they are downloaded, archived in Google, and deleted.
+        """
         # Set the path for the done file
         try:
             self.done_file_path = os.environ['ZOOMOUT_DONEFILE_PATH']
@@ -42,11 +48,13 @@ class ZoomOut:
         # Translate the limit given in hours to a limit in seconds
         self.limit = limit*60*60 if isinstance(limit, (int, long)) else 1*60*60
 
-        # Try to load messaging from messaging.json. Go with defaults if none present.
-        self.messaging = dict(share="Your recorded Zoom meeting is now available in your Google Drive.")
+        # Try to load messaging from messaging.json. Goes with defaults if none present.
         self.load_messaging()  # Assigns self.messaging based on the messaging.json file or fails and keeps the default.
 
     def main(self):
+        """
+        The main method. Executes if you execute 'python zoomout.py 48'. Numeric argument is optional.
+        """
         log("Starting...")
         try:
             # Collect meetings from Zoom and iterate through them...
@@ -58,8 +66,6 @@ class ZoomOut:
                 host_username = host.split('@')[0]
                 now = datetime.now()
                 topic = meeting['recording']['topic'] if 'topic' in meeting['recording'] else '[no topic]'
-                #for character in ["\"", "'", "\\", "/"]:
-                #    topic = topic.replace(character, "\\"+character)
 
                 # If the recording is more than x hours old, save it and upload it to Google.
                 if (now - start_time).seconds > self.limit:
@@ -151,9 +157,14 @@ class ZoomOut:
             exit()
 
     def load_messaging(self):
+        """
+        Loads specialized messaging if you provide it in a JSON file whose location is determined by ZOOMOUT_MESSAGING_JSON.
+        File must include a key/value pair with the key "share". Returns nothing. It sets the class variable called messaging
+        """
+        self.messaging = dict(share="Your recorded Zoom meeting is now available in your Google Drive.")
         try:
-            if os.path.exists('messaging.json'):
-                messaging_file = open('messaging.json', 'rb')
+            if os.path.exists(os.environ['ZOOMOUT_MESSAGING_JSON']):
+                messaging_file = open(os.environ['ZOOMOUT_MESSAGING_JSON'], 'rb')
                 self.messaging = json.loads(messaging_file.read())
             else:
                 log("No messaging.json file provided. Resorting to default messaging. "+
@@ -163,17 +174,23 @@ class ZoomOut:
             log("File 'messaging.json' exists but something went wrong. Reverting to defaults.")
 
     def collect_archived_meetings(self):
-        """Retrieves file list from Google Drive. Returns a list of file names.
-        :return: Array of meeting ids in string form
-        """
-        files = self.drive.files().list().execute()['files']
-        return [f['name'] for f in files]
+        """Retrieves file list from Google Drive. Returns a list of file names. Returns an array of meeting ids in string form"""
+        meeting_ids = []
+        for f in self.drive.files().list().execute()['files']:
+            try:
+                meeting_ids.append(self.drive.files().get(fileId=f['id']).execute()['appProperties']['zoomMeetingId'])
+            except Exception as exc:
+                pass
+        return meeting_ids
 
     def upload_to_drive(self, parent_id, filename):
-        """Uploads the file to Google Drive
-        :param filename: A filepath to a file like '123abc.MP4'.
-        :param parent_id: Google Drive document id of the parent folder
-        :return: The Google Drive API's response to the Upload request
+        """Uploads the file to Google Drive.
+
+        filename: A filepath to a file like '123abc.MP4'.
+
+        parent_id: Google Drive document id of the parent folder
+
+        Returns the Google Drive API's response to the Upload request
         """
         try:
             media_body = MediaFileUpload(
@@ -198,10 +215,8 @@ class ZoomOut:
         # Upload the file
         while response is None:
             try:
-                # print(http_auth.request.credentials.access_token)
                 status, response = request.next_chunk()
                 if status:
-                    # log("Uploaded %.2f%%" % (status.progress() * 100))
                     retries = 0
             except errors.HttpError, e:
                 if e.resp.status == 404:
@@ -219,10 +234,13 @@ class ZoomOut:
         return response
 
     def find_or_create_top_folder(self, host, host_username):
-        """Finds or creates the top level folder all of a user's recorded meetings will go in
-        :param host: the host dict from our meetings array
-        :param host_username: host email stripped of '@' and anything after it
-        :return: top_folder
+        """Finds or creates the top level folder all of a user's recorded meetings will go in.
+
+        host: the host dict from our meetings array
+
+        host_username: host email stripped of '@' and anything after it
+
+        Returns top_folder
         """
         user_recordings_folder_list = self.drive.files().list(q="mimeType = 'application/vnd.google-apps.folder' and appProperties has { key='zoomUserId' and value='" + str(host['id']) + "'}").execute()['files']
         if len(user_recordings_folder_list) > 0:
@@ -238,11 +256,16 @@ class ZoomOut:
 
     def find_or_create_meeting_folder(self, folder_name, zoom_meeting_id, top_folder, host):
         """Finds or creates the folder for a given meeting
-        :param folder_name:
-        :param zoom_meeting_id:
-        :param top_folder:
-        :param host:
-        :return: meeting_folder
+
+        folder_name: A text name for the folder
+
+        zoom_meeting_id: The meeting ID from Zoom
+
+        top_folder: The top level folder dedicated to that user's meeting recordings.
+
+        host: Dict holding details about the host
+
+        Returns meeting_folder
         """
         meeting_folder_list = self.drive.files().list(q="mimeType = 'application/vnd.google-apps.folder' and appProperties has { key='zoomMeetingId' and value='" + str(zoom_meeting_id) + "'}").execute()['files']
         if len(meeting_folder_list) < 1:
@@ -256,15 +279,26 @@ class ZoomOut:
         return meeting_folder
 
     def drive_file_exists(self, zoom_file_id):
+        """
+        Checks to see if a file with a given Zoom file id exists among the archived Zoom files. The file id is stored in an appProperties field called zoomFileId.
+
+        zoom_file_id: UUID for the file from Zoom
+
+        Returns True or False
+        """
         matches = self.drive.files().list(q="appProperties has { key='zoomFileId' and value='" + zoom_file_id + "'}").execute()['files']
         return len(matches) > 0
 
     def share_document(self, document_id, user, message):
         """Appends a permission to the file
-        :param document_id: Google Drive fileId
-        :param user: Host of the Zoom meeting, an email address
-        :param message: String containing a message that will go to the user in the sharing alert
-        :return: The Drive API's response
+
+        document_id: Google Drive fileId
+
+        user: Host of the Zoom meeting, an email address
+
+        message: String containing a message that will go to the user in the sharing alert
+
+        Returns the Drive API's response. When successful, that is a "drive_service" object that you can make API calls on.
         """
         return self.drive.permissions().create(fileId=document_id,
                                                sendNotificationEmail=True,
@@ -275,8 +309,10 @@ class ZoomOut:
 
     def remove_from_drive(self, document_id):
         """Removes the file from Google Drive
-        :param document_id: Google Drive fileId
-        :return: Nothing
+
+        document_id: Google Drive fileId
+
+        Returns nothing
         """
         self.drive.files().delete(fileId=document_id).execute()
 

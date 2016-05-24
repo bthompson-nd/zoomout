@@ -21,7 +21,7 @@ class ZoomOutTest(unittest.TestCase):
             self.assertTrue('email' in meeting['host'])
 
     def test_add_folder_with_meta(self):
-            host = dict(email='ben.thompson@gtest.nd.edu', id='12345')
+            host = dict(email='my@email.address.edu', id='12345')
             host_username = 'ben.thompson'
             top_folder = self.zoomout.find_or_create_top_folder(host, host_username)
             self.ids.append(top_folder['id'])

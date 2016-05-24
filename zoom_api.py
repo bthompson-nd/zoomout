@@ -3,10 +3,12 @@ import json
 
 class ZoomApi:
     def __init__(self, api_key, api_secret):
+        """Initializer for ZoomApi object. Takes api_key and api_secret parameters."""
         self.api_key = api_key
         self.api_secret = api_secret
 
     def list_users(self):
+        """Queries the /v1/user/list endpoint and returns the array of users from the response."""
         page = 0
         max_page = 0
         users = []
@@ -32,6 +34,7 @@ class ZoomApi:
         return users
 
     def list_recordings(self, userid):
+        """Fetches the recordings from /v1/recording/list and returns the "meetings" array"""
         page = 0
         max_page = 0
         meetings = []
@@ -57,8 +60,7 @@ class ZoomApi:
         return meetings
 
     def collect_meetings(self):
-        """Retrieve user list from Zoom. Will iterate through all, looking for aging meeting recordings.
-        :return: An array of Zoom meetings
+        """Retrieve user list from Zoom. Will iterate through all, looking for aging meeting recordings. Returns an array of Zoom meetings
         """
         user_list = self.list_users()
         meetings = []
@@ -69,6 +71,7 @@ class ZoomApi:
         return meetings
 
     def delete_recording(self, meeting_id, file_id):
+        """Deletes a Zoom recording, leaving the meeting history in place."""
         response = requests.post('https://api.zoom.us/v1/recording/delete',
                                  data=dict(
                                      api_key=self.api_key,
