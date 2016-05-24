@@ -2,6 +2,5 @@ apiclient
 google-api-python-client
 google-apitools
 httplib2
-json
 oauth2client
 virtualenv
