@@ -68,7 +68,7 @@ class ZoomOut:
                 topic = meeting['recording']['topic'] if 'topic' in meeting['recording'] else '[no topic]'
 
                 # If the recording is more than x hours old, save it and upload it to Google.
-                if (now - start_time).seconds > self.limit:
+                if (now - start_time).total_seconds() > self.limit:
                     log("Handling Meeting {0}: {1} - {2} hosted by {3}".
                         format(meeting['recording']['meeting_number'],
                                topic,
