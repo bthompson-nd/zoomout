@@ -31,6 +31,7 @@ class ZoomOut:
             self.done_file_path = os.environ['ZOOMOUT_DONEFILE_PATH']
         except KeyError:
             log("Aborting: You need to set the ZOOMOUT_DONEFILE_PATH variable so the script knows what file to write to signal it has finished.")
+            exit()
 
         # Establish Google Drive API
         self.drive = self.authorize_with_drive()
@@ -59,13 +60,17 @@ class ZoomOut:
         try:
             # Collect meetings from Zoom and iterate through them...
             meetings = self.zoom.collect_meetings()
-            archived = self.collect_archived_meetings()
             for meeting in meetings:
                 start_time = datetime.strptime(meeting['recording']['start_time'], '%Y-%m-%dT%H:%M:%SZ')
                 host = meeting['host']['email']
                 host_username = host.split('@')[0]
                 now = datetime.now()
                 topic = meeting['recording']['topic'] if 'topic' in meeting['recording'] else '[no topic]'
+                log("Handling Meeting {0}: {1} - {2} hosted by {3}".
+                    format(meeting['recording']['meeting_number'],
+                           topic,
+                           start_time,
+                           host))
 
                 # If the recording is more than x hours old, save it and upload it to Google.
                 if (now - start_time).seconds > self.limit:
@@ -120,10 +125,18 @@ class ZoomOut:
 
                         try:
                             # Upload it to Drive
-                            upload_response = self.upload_to_drive(meeting_folder['id'], filename)
-                            successful_uploads += 1
+                            upload_success = self.upload_to_drive(meeting_folder['id'], filename)
+                            if upload_success:
+                                successful_uploads += 1
+                            else:
+                                log("Failed to upload {0}, skipping deletion from Zoom. Will try again next time".format(filename))
+                                # Delete local file
+                                if os.path.isfile(filename):
+                                    os.remove(filename)
+                                continue  # Causes the loop to skip deleting from Zoom
                         except Exception as e:
                             log("Couldn't Upload {0} to Drive: {1}".format(filename, e.message))
+                            # Delete local file
                             if os.path.isfile(filename):
                                 os.remove(filename)
                             continue  # Causes the loop to skip deleting from Zoom
@@ -147,9 +160,7 @@ class ZoomOut:
                     else:
                         log("Could not upload every recording file for meeting {0}".format(meeting_folder_name))
 
-            done_file = open(self.done_file_path, 'wb')
-            done_file.write('Done')
-            done_file.close()
+            self.write_done_file()
         except Exception as e:
             ex_type, ex, tb = sys.exc_info()
             trace = traceback.format_tb(tb)
@@ -190,7 +201,7 @@ class ZoomOut:
 
         parent_id: Google Drive document id of the parent folder
 
-        Returns the Google Drive API's response to the Upload request
+        Returns True or False representing successful vs unsuccessful upload
         """
         try:
             media_body = MediaFileUpload(
@@ -211,7 +222,6 @@ class ZoomOut:
         retries = 0
         request = self.drive.files().create(body=body, media_body=media_body)
         response = None
-
         # Upload the file
         while response is None:
             try:
@@ -220,18 +230,18 @@ class ZoomOut:
                     retries = 0
             except errors.HttpError, e:
                 if e.resp.status == 404:
-                    log("Error 404 - Aborting")
-                    exit()
+                    log("Error 404 - Aborting the upload of {0}".format(filename))
+                    return False
                 else:
                     if retries > 10:
                         log("Retries limit exceeded! Aborting")
-                        exit()
+                        return False
                     else:
                         retries += 1
                         time.sleep(2 ** retries)
                         print "Error ({0})({1})... retrying.".format(e.resp.status, e.message)
                         continue
-        return response
+        return True
 
     def find_or_create_top_folder(self, host, host_username):
         """Finds or creates the top level folder all of a user's recorded meetings will go in.
@@ -316,13 +326,20 @@ class ZoomOut:
         """
         self.drive.files().delete(fileId=document_id).execute()
 
+    def write_done_file(self):
+        done_file = open(self.done_file_path, 'wb')
+        done_file.write('Done')
+        done_file.close()
+
     @staticmethod
     def authorize_with_drive():
         """Runs the authorization routine for a Google service account. Uses a JSON keyfile client_secrets.json
         :return: Resource object for interacting with Drive API v3
         """
         # Authorize with Google API
-        scopes = ['https://www.googleapis.com/auth/drive']
+        #scopes = ['https://www.googleapis.com/auth/drive']
+        scopes = ['https://www.googleapis.com/auth/drive.file',
+                  'https://www.googleapis.com/auth/drive.metadata']
         try:
             credentials = ServiceAccountCredentials.from_json_keyfile_name(os.environ['GOOGLE_AUTH_JSON'], scopes)
         except KeyError as exc:
@@ -337,7 +354,7 @@ if __name__ == "__main__":
     try:
         lim = int(sys.argv[1])
     except ValueError as e:
-        log("Correct Usage: zoomout.py N   where N is an integer representing the number of days to wait before archiving a Zoom recording. Using the default 30 days...")
+        log("Correct Usage: zoomout.py N   where N is an integer representing the number of hours to wait before archiving a Zoom recording. Using the default 1 hour...")
         lim = 1
     except IndexError as e:
         log("No argument provided. Archiving Zoom meetings over an hour old ...")
