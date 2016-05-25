@@ -1,4 +1,5 @@
 import requests
+from time import sleep
 import json
 
 class ZoomApi:
@@ -20,6 +21,7 @@ class ZoomApi:
                                   api_secret=self.api_secret,
                                   page_number=page,
                                   page_size=300))
+            sleep(0.1)
             if response.status_code == 200:
                 content = json.loads(response.content)
                 max_page = content['page_count']
@@ -47,6 +49,7 @@ class ZoomApi:
                                  page_number=page,
                                  page_size=300,
                                  host_id=userid))
+            sleep(0.1)
             if response.status_code == 200:
                 content = json.loads(response.content)
                 max_page = content['page_count'] if 'page_count' in content else 1
@@ -79,4 +82,5 @@ class ZoomApi:
                                      meeting_id=meeting_id,
                                      file_id=file_id
                                  ))
+        sleep(0.1)
         return response

@@ -66,14 +66,14 @@ class ZoomOut:
                 host_username = host.split('@')[0]
                 now = datetime.now()
                 topic = meeting['recording']['topic'] if 'topic' in meeting['recording'] else '[no topic]'
-                log("Handling Meeting {0}: {1} - {2} hosted by {3}".
-                    format(meeting['recording']['meeting_number'],
-                           topic,
-                           start_time,
-                           host))
 
                 # If the recording is more than x hours old, save it and upload it to Google.
                 if (now - start_time).seconds > self.limit:
+                    log("Handling Meeting {0}: {1} - {2} hosted by {3}".
+                        format(meeting['recording']['meeting_number'],
+                               topic,
+                               start_time,
+                               host))
                     # Find or create user's top level folder
                     top_folder = self.find_or_create_top_folder(
                             host=meeting['host'],
@@ -99,7 +99,7 @@ class ZoomOut:
                                     meeting_id=recording_file['meeting_id'],
                                     file_id=recording_file_id)
                             if delete_response.status_code != 200:
-                                log(delete_response.content)
+                                log("Delete of Zoom Recording Failed: {0}".format(delete_response.content))
                             if os.path.isfile(filename):
                                 os.remove(filename)
                             continue  # Causes the loop to skip downloading this file (and all subsequent steps)
