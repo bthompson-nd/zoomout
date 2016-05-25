@@ -1,5 +1,6 @@
 .git
 .idea
+*.done
 bin
 lib
 include
