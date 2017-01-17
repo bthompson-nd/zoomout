@@ -42,12 +42,5 @@ The environment that runs the script will
  you have another process in your environment that will act after the archiving of Zoom content has finished. In my case,
  that was another script in the crontab that would delete the donefile and then shut down the cloud server instance
  the script just ran on.
- 
- ### Running ZoomOut as a Module
- 
- If you want, you can set the above environment variables and then fire up the interactive interpreter inside your
- virtualenv. You would then be able to do something like this:
- 
-    >>> import zoomout
-    >>> zo = zoomout.ZoomOut(48)
-    >>> zo.
+
+The purpose of the donefile is so that any dependent tasks (like shutting off the server) can know that the task has completed. If you have no need for this, just set the value to `/dev/null`.
